@@ -1,0 +1,1 @@
+{ "name": "sekar", "private": true, "type": "module", "dependencies": { "yaml": "^2" } }

@@ -5,7 +5,9 @@ To install:
 
 ```
 curl -fsSL https://pi.dev/install.sh | sh
-ln -s . ~/.pi/agent/extensions/sekar
+npm install
+mkdir -p ~/.pi/agent/extensions
+ln -s "$(pwd)" ~/.pi/agent/extensions/sekar
 ```
 
 `sekar` will automatically be running.
