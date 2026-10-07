@@ -3,8 +3,8 @@ import { join, basename, dirname } from "path";
 import { fileURLToPath } from "url";
 import { parse, stringify } from "yaml";
 
-export type Data = { name: string; description?: string; given?: boolean; source?: string[] };
-export type Module = { name: string; inputs: string[]; outputs: string[]; description?: string; source?: string[] };
+export type Data = { name: string; description?: string; given?: boolean; example?: string; source?: string[] };
+export type Module = { name: string; inputs: string[]; outputs: string[]; description?: string; file?: string; pseudocode?: string[]; source?: string[] };
 export type Entry = { by: "critic" | "human"; text: string };
 export type Comment = { title: string; regarding: string[]; status: "open" | "resolved"; history: Entry[] };
 export type Design = { next: { D: number; M: number; C: number }; data: Record<string, Data>; modules: Record<string, Module>; comments: Record<string, Comment> };
@@ -30,6 +30,8 @@ export const save = (d: Design) => writeFileSync(file(), stringify(d));
 
 export const label = (d: Design, id: string) => `[${id}][${d.data[id]?.name ?? d.modules[id]?.name ?? d.comments[id]?.title}]`;
 
+export const scope = (d: Design, m: string) => [...new Set([m, ...d.modules[m].inputs, ...d.modules[m].outputs])];
+
 const newId = (d: Design, kind: "D" | "M" | "C") => `${kind}${d.next[kind]++}`;
 
 export const quoteText = (q: string[], words: string[]) => {
@@ -37,43 +39,48 @@ export const quoteText = (q: string[], words: string[]) => {
   return idx.map((i, k) => (k && i !== idx[k - 1] + 1 ? `… ${words[i]}` : words[i])).join(" ");
 };
 
+const reopen = (d: Design, touched: Set<string>) => {
+  const ids = Object.entries(d.comments).filter(([, c]) => c.status === "resolved" && c.regarding.some((id) => touched.has(id))).map(([id]) => id);
+  ids.forEach((id) => (d.comments[id].status = "open"));
+  return ids;
+};
+
 export const apply = (d: Design, ops: any[], words: string[]) => {
   const touched = new Set<string>();
   const src = (q: string[]) => [quoteText(q, words)];
   const merge = (prev: string[] = [], q: string[]) => [...prev, ...src(q)];
+  const patch = (id: string, fields: object, q: string[]) => {
+    touched.add(id);
+    const t = d.data[id] ?? d.modules[id];
+    Object.assign(t, fields, { source: merge(t.source, q) });
+  };
   for (const op of ops) {
     if (op.op === "add_data") {
       op.id = newId(d, "D");
       d.data[op.id] = { name: op.name, description: op.description, source: src(op.quote) };
     }
-    if (op.op === "update_data") {
-      touched.add(op.id);
-      d.data[op.id] = { ...d.data[op.id], ...(op.description && { description: op.description }), source: merge(d.data[op.id].source, op.quote) };
-    }
-    if (op.op === "set_data_as_given") {
-      touched.add(op.id);
-      d.data[op.id] = { ...d.data[op.id], given: true, source: merge(d.data[op.id].source, op.quote) };
-    }
+    if (op.op === "update_data") patch(op.id, op.description ? { description: op.description } : {}, op.quote);
+    if (op.op === "set_data_as_given") patch(op.id, { given: true }, op.quote);
+    if (op.op === "set_example") patch(op.id, { example: op.example }, op.quote);
     if (op.op === "add_module") {
       op.id = newId(d, "M");
       d.modules[op.id] = { name: op.name, inputs: op.inputs, outputs: op.outputs, description: op.description, source: src(op.quote) };
     }
-    if (op.op === "update_module") {
-      touched.add(op.id);
-      d.modules[op.id] = {
-        ...d.modules[op.id],
-        ...(op.inputs && { inputs: op.inputs }),
-        ...(op.outputs && { outputs: op.outputs }),
-        ...(op.description && { description: op.description }),
-        source: merge(d.modules[op.id].source, op.quote),
-      };
-    }
+    if (op.op === "update_module")
+      patch(op.id, { ...(op.inputs && { inputs: op.inputs }), ...(op.outputs && { outputs: op.outputs }), ...(op.description && { description: op.description }) }, op.quote);
   }
-  const reopened = Object.entries(d.comments)
-    .filter(([, c]) => c.status === "resolved" && c.regarding.some((id) => touched.has(id)))
-    .map(([id]) => id);
-  reopened.forEach((id) => (d.comments[id].status = "open"));
-  return reopened;
+  return reopen(d, touched);
+};
+
+export const applyFocused = (d: Design, m: string, ops: any[], words: string[]) => {
+  const t = d.modules[m];
+  for (const op of ops) {
+    if (op.op === "set_pseudocode") t.pseudocode = op.lines;
+    if (op.op === "set_file") t.file = op.path;
+    if (op.op === "update_description") t.description = op.description;
+    t.source = [...(t.source ?? []), quoteText(op.quote, words)];
+  }
+  return ops.length ? reopen(d, new Set([m])) : [];
 };
 
 export const critique = (d: Design, reply: any) => {
