@@ -1,13 +1,13 @@
 import { readFileSync, existsSync } from "fs";
 import { resolve, extname } from "path";
-import { label, type Design } from "./design";
+import { complete, type Design } from "./design";
 
 const markers: Record<string, string> = { ".py": "#", ".sh": "#", ".rb": "#", ".ts": "//", ".js": "//", ".go": "//", ".rs": "//", ".c": "//", ".h": "//", ".java": "//" };
 
 export const gate = (d: Design, m: string) => {
   const mod = d.modules[m];
   return [
-    ...[...mod.inputs, ...mod.outputs].filter((id) => !d.data[id].example).map((id) => `${label(d, id)} has no example`),
+    ...(mod.scenarios?.some((s) => complete(d, m, s)) ? [] : ["no complete scenario (a value for every input and output)"]),
     ...(mod.pseudocode?.length ? [] : ["no pseudocode"]),
     ...(mod.file ? [] : ["no file"]),
   ];
